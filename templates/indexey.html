@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rural Knowledge Assistant</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+
+        h1, h2 {
+            color: #2c3e50;
+        }
+
+        button {
+            margin: 5px;
+            padding: 10px 15px;
+            background-color: #3498db;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        #spinner, #querySpinner {
+            display: none;
+            margin: 20px auto;
+            border: 6px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 6px solid #3498db;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #responseText {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+            margin-top: 10px;
+        }
+
+        #playResponseButton {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Rural Knowledge Assistant</h1>
+
+    <div>
+        <h2>Step 1: Say Your Name</h2>
+        <button id="recordNameButton">🎤 Record Name</button>
+        <button id="stopNameButton" style="display:none;">⏹ Stop Recording</button>
+        <p id="nameStatus">Status: Waiting for input...</p>
+        <div id="spinner"></div>
+    </div>
+
+    <div>
+        <h2>Step 2: Select Literacy Level</h2>
+        <button onclick="setLiteracyLevel('poor')">Poor</button>
+        <button onclick="setLiteracyLevel('good')">Good</button>
+        <button onclick="setLiteracyLevel('very good')">Very Good</button>
+        <p id="literacyStatus">Status: Literacy level not set.</p>
+    </div>
+
+    <div>
+        <h2>Step 3: Ask Your Query</h2>
+        <button id="recordQueryButton">🎤 Record Query</button>
+        <button id="stopQueryButton" style="display:none;">⏹ Stop Recording</button>
+        <p id="queryStatus">Query: None</p>
+        <div id="querySpinner"></div>
+    </div>
+
+    <div>
+        <h2>Response</h2>
+        <p id="responseText">Response will appear here...</p>
+        <button id="playResponseButton" style="display:none;">🔊 Play Response</button>
+        <button id="stopResponseButton" style="display:none;">⏹ Stop Response</button>
+    </div>
+
+    <script>
+        const recordNameButton = document.getElementById('recordNameButton');
+        const stopNameButton = document.getElementById('stopNameButton');
+        const recordQueryButton = document.getElementById('recordQueryButton');
+        const stopQueryButton = document.getElementById('stopQueryButton');
+        const playResponseButton = document.getElementById('playResponseButton');
+        const stopResponseButton = document.getElementById('stopResponseButton');
+        const nameStatus = document.getElementById('nameStatus');
+        const queryStatus = document.getElementById('queryStatus');
+        const responseText = document.getElementById('responseText');
+        const literacyStatus = document.getElementById('literacyStatus');
+        const spinner = document.getElementById('spinner');
+        const querySpinner = document.getElementById('querySpinner');
+    
+        let nameRecorder = null;
+        let queryRecorder = null;
+        let nameAudioChunks = [];
+        let queryAudioChunks = [];
+        let responseAudio = null;
+        let detectedLanguageCode = "en"; // Default to English
+    
+        const startRecording = async (type) => {
+            console.log(`Starting recording for: ${type}`);
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const recorder = new MediaRecorder(stream);
+    
+            if (type === 'name') {
+                nameAudioChunks = [];
+                nameRecorder = recorder;
+                recordNameButton.style.display = 'none';
+                stopNameButton.style.display = 'inline';
+    
+                nameRecorder.ondataavailable = (event) => {
+                    nameAudioChunks.push(event.data);
+                };
+    
+                nameRecorder.onstop = () => processRecording('name', nameAudioChunks);
+                nameRecorder.start();
+                nameStatus.textContent = 'Recording...';
+            } else if (type === 'query') {
+                queryAudioChunks = [];
+                queryRecorder = recorder;
+                recordQueryButton.style.display = 'none';
+                stopQueryButton.style.display = 'inline';
+    
+                queryRecorder.ondataavailable = (event) => {
+                    queryAudioChunks.push(event.data);
+                };
+    
+                queryRecorder.onstop = () => processRecording('query', queryAudioChunks);
+                queryRecorder.start();
+                queryStatus.textContent = 'Recording...';
+            }
+        };
+    
+        const stopRecording = (type) => {
+            console.log(`Stopping recording for: ${type}`);
+            if (type === 'name' && nameRecorder) {
+                nameRecorder.stop();
+                nameStatus.textContent = 'Processing audio...';
+                recordNameButton.style.display = 'inline';
+                stopNameButton.style.display = 'none';
+            } else if (type === 'query' && queryRecorder) {
+                queryRecorder.stop();
+                queryStatus.textContent = 'Processing audio...';
+                recordQueryButton.style.display = 'inline';
+                stopQueryButton.style.display = 'none';
+            }
+        };
+    
+        const processRecording = async (type, chunks) => {
+            console.log(`Processing recording for: ${type}`);
+            const audioBlob = new Blob(chunks, { type: 'audio/wav' });
+            const formData = new FormData();
+            formData.append('audio', audioBlob);
+    
+            try {
+                if (type === 'name') {
+                    spinner.style.display = 'block';
+                    const response = await fetch('/get_name', {
+                        method: 'POST',
+                        body: formData
+                    });
+    
+                    const data = await response.json();
+                    spinner.style.display = 'none';
+    
+                    if (data.error) {
+                        nameStatus.textContent = data.error;
+                        console.error(data.error);
+                        return;
+                    }
+    
+                    nameStatus.textContent = `Hello ${data.message}`;
+                } else if (type === 'query') {
+                    querySpinner.style.display = 'block';
+                    const response = await fetch('/query', {
+                        method: 'POST',
+                        body: formData
+                    });
+    
+                    const data = await response.json();
+                    querySpinner.style.display = 'none';
+    
+                    if (data.error) {
+                        queryStatus.textContent = data.error;
+                        console.error(data.error);
+                        return;
+                    }
+    
+                    queryStatus.textContent = `Query: ${data.query || 'No query available.'}`;
+                    responseText.textContent = data.response || 'No response available.';
+                    detectedLanguageCode = data.language_code || "en"; // Store detected language code
+                    if (data.response) playResponseButton.style.display = 'inline';
+                }
+            } catch (error) {
+                console.error('Error processing recording:', error);
+                if (type === 'name') {
+                    spinner.style.display = 'none';
+                    nameStatus.textContent = 'Error processing audio.';
+                } else if (type === 'query') {
+                    querySpinner.style.display = 'none';
+                    queryStatus.textContent = 'Error processing query.';
+                }
+            }
+        };
+    
+        recordNameButton.addEventListener('click', () => startRecording('name'));
+        stopNameButton.addEventListener('click', () => stopRecording('name'));
+        recordQueryButton.addEventListener('click', () => startRecording('query'));
+        stopQueryButton.addEventListener('click', () => stopRecording('query'));
+    
+        const setLiteracyLevel = async (level) => {
+            try {
+                console.log(`Setting literacy level to: ${level}`);
+                const response = await fetch('/set_literacy_level', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ literacy_level: level })
+                });
+    
+                const data = await response.json();
+                literacyStatus.textContent = data.message || 'Error setting literacy level.';
+            } catch (error) {
+                literacyStatus.textContent = 'Error setting literacy level.';
+                console.error('Error:', error);
+            }
+        };
+    
+        playResponseButton.addEventListener('click', async () => {
+            const responseTextContent = responseText.textContent.trim();
+    
+            try {
+                const response = await fetch('/play_response', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: responseTextContent, language_code: detectedLanguageCode })
+                });
+    
+                if (!response.ok) {
+                    console.error("Error generating audio response.");
+                    return;
+                }
+    
+                const audioBlob = await response.blob();
+                if (responseAudio) {
+                    responseAudio.pause();
+                    responseAudio.currentTime = 0;
+                }
+    
+                responseAudio = new Audio(URL.createObjectURL(audioBlob));
+                responseAudio.play();
+                stopResponseButton.style.display = 'inline';
+    
+                responseAudio.addEventListener('ended', () => {
+                    stopResponseButton.style.display = 'none';
+                });
+            } catch (error) {
+                console.error("Error playing response:", error);
+            }
+        });
+    
+        stopResponseButton.addEventListener('click', () => {
+            if (responseAudio) {
+                responseAudio.pause();
+                responseAudio.currentTime = 0;
+                stopResponseButton.style.display = 'none';
+            }
+        });
+    </script>
+    

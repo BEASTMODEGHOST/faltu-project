@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Micro Investment & Government Scheme Recommendations</title>
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let schemeRecognition;
+        let schemeVoiceInput = "";
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+                    audioChunks = [];
+
+                    mediaRecorder.addEventListener("dataavailable", event => {
+                        audioChunks.push(event.data);
+                    });
+
+                    mediaRecorder.addEventListener("stop", () => {
+                        let audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+                        sendAudio(audioBlob);
+                    });
+
+                    document.getElementById("recordButton").innerText = "🛑 Stop Recording";
+                    document.getElementById("recordButton").onclick = stopRecording;
+                })
+                .catch(error => console.error("Error accessing microphone:", error));
+        }
+
+        function stopRecording() {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+                document.getElementById("recordButton").innerText = "🎤 Start Recording";
+                document.getElementById("recordButton").onclick = startRecording;
+            }
+        }
+
+        function sendAudio(audioBlob) {
+            const formData = new FormData();
+            formData.append("audio_file", audioBlob, "query_audio.webm");
+
+            fetch("/submit_audio", { method: "POST", body: formData })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById("transcription").innerText = data.transcription;
+                    getInvestmentSuggestions(data.transcription);
+                })
+                .catch(error => console.error("Error:", error));
+        }
+
+        function submitUserInput() {
+            let userInput = {
+                risk_level: document.getElementById("risk").value,
+                income: document.getElementById("income").value,
+                investment_period: document.getElementById("investment_period").value
+            };
+
+            fetch("/get_user_input", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(userInput)
+            })
+            .then(response => response.json())
+            .then(data => console.log("User preferences saved:", data))
+            .catch(error => console.error("Error:", error));
+        }
+
+        function getInvestmentSuggestions(transcription) {
+            let requestData = {
+                risk_level: document.getElementById("risk").value,
+                income: document.getElementById("income").value,
+                investment_period: document.getElementById("investment_period").value,
+                transcription: transcription
+            };
+
+            fetch("/get_investment_recommendation", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                let suggestionList = document.getElementById("suggestions");
+                suggestionList.innerHTML = `<p><strong>Detected Language:</strong> ${data.language}</p>`;
+                suggestionList.innerHTML += `<p><strong>Your Query:</strong> ${data.user_query}</p>`;
+
+                data.investment_suggestions.forEach((item) => {
+                    let li = document.createElement("li");
+                    li.innerHTML = `<strong>${item["Investment Type"]}</strong> 
+                        - Expected Returns: ${item["Expected Returns"]} 
+                        - Min Investment: ${item["Min Investment"]} 
+                        - Liquidity: ${item["Liquidity"]}
+                        - Details: ${item["Details"]}
+                        <button onclick="speak('${item["Investment Type"]}: ${item["Details"]}', '${data.language}')">🔊 Play</button>`;
+                    suggestionList.appendChild(li);
+                });
+            })
+            .catch(error => console.error("Error fetching investment suggestions:", error));
+        }
+
+        function startSchemeRecording() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                alert("Your browser does not support speech recognition. Try using Google Chrome.");
+                return;
+            }
+
+            schemeRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            schemeRecognition.lang = "en"; 
+            schemeRecognition.interimResults = false;
+            schemeRecognition.maxAlternatives = 1;
+
+            schemeRecognition.onresult = function(event) {
+                schemeVoiceInput = event.results[0][0].transcript;
+                document.getElementById("schemeQuery").innerText = "You said: " + schemeVoiceInput;
+            };
+
+            schemeRecognition.onerror = function(event) {
+                console.error("Speech Recognition Error:", event.error);
+                alert("Error: " + event.error);
+            };
+
+            schemeRecognition.start();
+            document.getElementById("schemeStatus").innerText = "🎤 Listening...";
+        }
+
+        function stopSchemeRecording() {
+            if (schemeRecognition) {
+                schemeRecognition.stop();
+                document.getElementById("schemeStatus").innerText = "🛑 Stopped.";
+            }
+        }
+
+        function getGovernmentScheme() {
+            fetch("/government_schemes", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ voice_input: schemeVoiceInput })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("schemeResponse").innerHTML = `<p><strong>Response:</strong> ${data.response}</p>`;
+                speakScheme(data.response, data.language);
+            })
+            .catch(error => console.error("Error fetching government schemes:", error));
+        }
+
+        function speak(text, language) {
+            let speech = new SpeechSynthesisUtterance();
+            speech.text = text;
+            speech.lang = language;
+            window.speechSynthesis.speak(speech);
+        }
+
+        function speakScheme(text, language) {
+            let speech = new SpeechSynthesisUtterance();
+            speech.text = text;
+            speech.lang = language;
+            window.speechSynthesis.speak(speech);
+        }
+    </script>
+</head>
+<body>
+    <h2>Micro Investment & Government Scheme Recommendations</h2>
+
+    <h3>Micro Investment Suggestions</h3>
+    <form onsubmit="event.preventDefault(); submitUserInput();">
+        <label for="risk">Risk Level:</label>
+        <select id="risk">
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+        </select>
+        <br><br>
+
+        <label for="income">Monthly Income (INR):</label>
+        <input type="number" id="income" required>
+        <br><br>
+
+        <label for="investment_period">Investment Period (years):</label>
+        <input type="number" id="investment_period" required>
+        <br><br>
+
+        <button type="button" id="recordButton" onclick="startRecording()">🎤 Start Recording</button>
+        <p id="transcription"></p>
+
+        <button type="submit">Save Preferences</button>
+    </form>
+    <button onclick="getInvestmentSuggestions(document.getElementById('transcription').innerText)">Get Investment Recommendations</button>
+    <ul id="suggestions"></ul>
+
+    <hr>
+
+    <h3>Government Scheme Recommendations</h3>
+    <button onclick="startSchemeRecording()">🎤 Start Recording</button>
+    <button onclick="stopSchemeRecording()">🛑 Stop Recording</button>
+    <p id="schemeStatus"></p>
+    <p id="schemeQuery"></p>
+    <button onclick="getGovernmentScheme()">Get Scheme Recommendation</button>
+    <div id="schemeResponse"></div>
+
+</body>
+</html>

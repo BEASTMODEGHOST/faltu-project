@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loan Query Assistant</title>
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let bankName = "";
+        let currentAudio = null;  // Store the playing audio
+
+        function selectBank(value) {
+            bankName = value;
+            document.getElementById("phone_number").innerText = "Bank Contact: " + value;
+        }
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+                    audioChunks = [];
+
+                    mediaRecorder.addEventListener("dataavailable", event => {
+                        audioChunks.push(event.data);
+                    });
+
+                    mediaRecorder.addEventListener("stop", () => {
+                        const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+                        sendAudio(audioBlob);
+                    });
+
+                    document.getElementById("recordButton").innerText = "Stop Recording";
+                    document.getElementById("recordButton").onclick = stopRecording;
+                });
+        }
+
+        function stopRecording() {
+            mediaRecorder.stop();
+            document.getElementById("recordButton").innerText = "Start Recording";
+            document.getElementById("recordButton").onclick = startRecording;
+        }
+
+        function sendAudio(audioBlob) {
+            const formData = new FormData();
+            formData.append("audio_file", audioBlob, "query_audio.webm");
+
+            fetch("/submit_audio", { method: "POST", body: formData })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("transcription").innerText = data.transcription;
+                sendQuery(data.transcription);
+            });
+        }
+
+        function sendQuery(transcription) {
+            const formData = new FormData();
+            formData.append("transcription", transcription);
+            formData.append("bank_name", bankName);
+
+            fetch("/process_query", { method: "POST", body: formData })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("response").innerText = data.response;
+                document.getElementById("phone_number").innerText = "Bank Contact: " + data.phone_number;
+                
+                // Update play button to play audio
+                document.getElementById("playButton").onclick = () => playResponseAudio(data.audio_url);
+                document.getElementById("stopButton").style.display = "none";  // Hide stop button initially
+
+                if (data.chat_history && data.chat_history.length > 0) {
+                    document.getElementById("chatHistory").innerHTML = data.chat_history.map(chat => 
+                        `<p><strong>You:</strong> ${chat.user || "User"}</p>
+                         <p><strong>Assistant:</strong> ${chat.assistant || "Assistant"}</p>`).join("");
+                }
+                // Show Yes/No question after response
+                document.getElementById("yesNoSection").style.display = "block";
+            });
+        }
+
+        function playResponseAudio(audioUrl) {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+            }
+
+            currentAudio = new Audio(audioUrl);
+            currentAudio.play();
+
+            document.getElementById("stopButton").style.display = "inline-block";
+            currentAudio.onended = () => {
+                document.getElementById("stopButton").style.display = "none";
+            };
+        }
+
+        function stopResponseAudio() {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+                document.getElementById("stopButton").style.display = "none";
+            }
+        }
+
+        function handleChoice(choice) {
+            const formData = new FormData();
+            formData.append("choice", choice);
+
+            fetch("/handle_choice", { method: "POST", body: formData })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("message").innerText = data.message;
+                
+                if (choice === "No") {
+                    document.getElementById("chatHistory").innerHTML = ""; // Reset chat history display
+                }
+            });
+        }
+    </script>
+</head>
+<body>
+    <h1>Loan Query Assistant</h1>
+    
+    <select onchange="selectBank(this.value)">
+        <option>Select a bank</option>
+        <option>TVS Bank</option>
+        <option>Bank of Baroda</option>
+        <option>Punjab National Bank</option>
+    </select>
+
+    <p id="phone_number">Bank Contact: </p>
+
+    <button id="recordButton" onclick="startRecording()">Start Recording</button>
+    
+    <p id="transcription"></p>
+    <p id="response"></p>
+
+    <button id="playButton">Play Response</button>
+    <button id="stopButton" style="display: none;" onclick="stopResponseAudio()">Stop Playback</button>
+
+    <!-- Yes/No Question -->
+    <div id="yesNoSection" style="display: none;">
+        <p><strong>Do you want to know more about this loan process?</strong></p>
+        <button onclick="handleChoice('Yes')">Yes</button>
+        <button onclick="handleChoice('No')">No</button>
+    </div>
+    
+    <p id="message"></p>
+
+    <h2>Chat History</h2>
+    <div id="chatHistory"></div>
+</body>
+</html>
